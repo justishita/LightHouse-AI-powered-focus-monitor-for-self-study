@@ -12,6 +12,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
+from routers import detection
+from services.detection_service import detection_service
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -19,14 +21,18 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: nothing to warm up yet at the skeleton stage — detection
-    # models will load lazily inside the detection service once that
-    # section exists, so server boot stays fast even before a session starts.
+    # Startup: nothing to warm up — detection models load lazily inside
+    # detection_service.start() so server boot stays fast even before a
+    # session begins (no cost paid for a session that's never started).
     logger.info(f"{settings.APP_NAME} starting up in '{settings.APP_ENV}' mode")
     yield
-    # Shutdown: placeholder for releasing the camera/model resources once
-    # those services exist — keeping the hook here now so we don't forget it.
-    logger.info("Shutting down — releasing any held resources")
+    # Shutdown: make sure the webcam gets released even if the server is
+    # killed mid-session — otherwise the camera can stay "in use" from the
+    # OS's perspective until the process fully exits.
+    if detection_service.is_running:
+        logger.info("Server shutting down with an active session — stopping detection")
+        detection_service.stop()
+    logger.info("Shutdown complete")
 
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
@@ -42,6 +48,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(detection.router, prefix="/api/detection", tags=["detection"])
+
 
 @app.get("/health")
 async def health_check():
@@ -50,6 +58,5 @@ async def health_check():
     return {"status": "ok", "app": settings.APP_NAME, "env": settings.APP_ENV}
 
 
-# Routers get included here as each section is built, e.g.:
-# from routers import session, detection, blocker
-# app.include_router(session.router, prefix="/api/session", tags=["session"])
+# Additional routers (session, blocker) get included here as those
+# sections are built, following the same pattern as detection above.

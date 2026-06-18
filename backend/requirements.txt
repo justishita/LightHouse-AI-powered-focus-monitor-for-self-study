@@ -2,3 +2,9 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic-settings==2.7.1
 python-dotenv==1.0.1
+numpy==2.2.4
+
+# Detection section additions
+opencv-python-headless==4.13.0.92  # headless build — no GUI/Qt deps needed, this runs server-side only
+mediapipe==0.10.35                  # face mesh landmarks for head-pose gaze estimation
+ultralytics==8.4.68                 # YOLOv8n for phone detection (pulls in torch automatically)
