@@ -1,5 +1,5 @@
 """
-routers/detection.py — Webcam detection endpoints.
+routers/detection.py — Webcam detection + alert endpoints.
 
 Why start/stop live here rather than only inside session.py: this lets us
 test detection completely standalone before the session router exists yet.
@@ -8,8 +8,9 @@ directly (not hit these HTTP endpoints internally) — these stay as the
 endpoints the frontend, or you manually via /docs, can use to test this
 section in isolation.
 
-No business logic lives in this file — it only validates input and calls
-into detection_service, per the project's router/service split.
+No business logic lives in this file — it only validates input, calls into
+detection_service / alert_service, and shapes their combined output into
+the response schema, per the project's router/service split.
 """
 
 import asyncio
@@ -17,12 +18,28 @@ import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from config import settings
-from models.schemas import DetectionActionResponse, DetectionStatusResponse
+from models.schemas import (
+    AlertDismissResponse,
+    DetectionActionResponse,
+    DetectionStatusResponse,
+)
+from services.alert_service import alert_service
 from services.detection_service import detection_service
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+def _build_status_response() -> DetectionStatusResponse:
+    # Single shared helper so /status and the WebSocket loop can't drift
+    # out of sync on how detection + alert state get combined.
+    detection_status = detection_service.get_status()
+    alert_status = alert_service.evaluate(
+        gaze_alert=detection_status["gaze_alert"],
+        phone_detected=detection_status["phone_detected"],
+    )
+    return DetectionStatusResponse(**detection_status, **alert_status)
 
 
 @router.post("/start", response_model=DetectionActionResponse)
@@ -39,12 +56,16 @@ async def start_detection():
             status="error",
             detail="Could not start detection — check that the webcam isn't in use by another app.",
         )
+    # Fresh session should never inherit an active popup or cooldown timer
+    # left over from a previous one.
+    alert_service.reset()
     return DetectionActionResponse(status="started")
 
 
 @router.post("/stop", response_model=DetectionActionResponse)
 async def stop_detection():
     await asyncio.to_thread(detection_service.stop)
+    alert_service.reset()
     return DetectionActionResponse(status="stopped")
 
 
@@ -52,23 +73,36 @@ async def stop_detection():
 async def get_detection_status():
     # Plain REST snapshot — handy for a quick manual check via /docs without
     # needing a WebSocket client.
-    return DetectionStatusResponse(**detection_service.get_status())
+    return _build_status_response()
+
+
+@router.post("/alert/dismiss", response_model=AlertDismissResponse)
+async def dismiss_alert():
+    result = alert_service.dismiss()
+    return AlertDismissResponse(
+        alert_active=result["alert_active"],
+        alert_cooldown_remaining_sec=result["alert_cooldown_remaining_sec"],
+    )
 
 
 @router.websocket("/ws")
 async def detection_status_stream(websocket: WebSocket):
-    """Pushes detection status to the frontend at a fixed interval.
+    """Pushes combined detection + alert status to the frontend at a fixed
+    interval.
 
     Why polling the shared state on a timer instead of having the
     detection thread push directly: the detection loop runs in a plain
     threading.Thread, not asyncio — bridging that to a WebSocket cleanly
     means reading the thread-safe state from this async loop instead of
-    trying to call async code from inside the worker thread.
+    trying to call async code from inside the worker thread. This is also
+    where alert_service.evaluate() gets called each tick, so the alert
+    state machine advances continuously while a session is active, not
+    just whenever /status happens to be polled.
     """
     await websocket.accept()
     try:
         while True:
-            status = DetectionStatusResponse(**detection_service.get_status())
+            status = _build_status_response()
             await websocket.send_json(status.model_dump())
             await asyncio.sleep(settings.DETECTION_STATUS_PUSH_INTERVAL_SEC)
     except WebSocketDisconnect:

@@ -36,6 +36,21 @@ class Settings(BaseSettings):
     # --- Phone detection ---
     PHONE_CONFIDENCE_THRESHOLD: float = 0.5  # minimum YOLO confidence to count as a phone
 
+    # --- Alerts ---
+    ALERT_COOLDOWN_SEC: float = 120.0  # 2 min — how long after dismiss before the popup can fire again
+
+    # --- Alerts ---
+    # Single alert type covers both gaze-away and phone-detected (per your
+    # choice) — this is the cooldown window after a dismissal before the
+    # next popup is allowed to fire, even if the distraction is ongoing.
+    ALERT_COOLDOWN_SEC: float = 120.0
+
+    # --- Alerts ---
+    # Cooldown gates how often a NEW popup can fire, independent of dismiss —
+    # dismissing early doesn't shorten it, since the goal is "don't spam",
+    # not "let the user reset the timer by clicking faster".
+    ALERT_COOLDOWN_SEC: float = 120.0
+
     # --- Gaze / head-pose thresholds ---
     # Degrees of yaw (turned left/right) or pitch (looking up/down) before
     # we consider the user "not looking at the screen". 25/20 are reasonable
