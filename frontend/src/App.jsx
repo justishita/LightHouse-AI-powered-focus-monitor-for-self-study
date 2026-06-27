@@ -1,7 +1,8 @@
+import './styles/index.css'
 function App() {
   return (
     <>
-      <p>hello</p>
+      <p className='bg-pink-500'>hello</p>
     </>
   )
 }
