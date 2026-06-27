@@ -7,7 +7,13 @@ if we ever need to change a default value, add a new setting, or swap
 where settings come from, there's exactly one place to do it.
 """
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolve paths relative to this file, not the cwd — so uvicorn can be
+# launched from any directory without breaking relative file references.
+_BACKEND_DIR = Path(__file__).resolve().parent
 
 
 class Settings(BaseSettings):
@@ -16,55 +22,44 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"  # "development" | "production"
 
     # --- CORS ---
-    # Comma-separated list parsed into a list below. Kept as plain strings
-    # in .env because env vars can't natively hold Python lists.
+    # Comma-separated so .env stays plain text. Parsed into a list via
+    # the cors_origins_list property below.
     CORS_ORIGINS: str = "http://localhost:5173"
 
+    # --- Database ---
+    # Path is relative to the backend/ directory so the DB file always
+    # lands next to main.py regardless of where uvicorn is invoked from.
+    DB_PATH: str = str(_BACKEND_DIR / "selfstudy.db")
+
     # --- Camera / detection ---
-    CAMERA_INDEX: int = 0  # which webcam OpenCV should open (0 = default)
-    DETECTION_FRAME_INTERVAL_SEC: float = 0.2  # gaze check frequency
-    PHONE_CHECK_INTERVAL_SEC: float = 1.5      # phone detection runs less often — it's the heavier model
-    DETECTION_STATUS_PUSH_INTERVAL_SEC: float = 0.5  # how often the WS pushes status to the frontend
-
-    # --- Gaze / head pose ---
-    # Starting points, not guaranteed-exact for every face/webcam — watch the
-    # logged yaw/pitch while testing and tune these in .env if needed.
-    GAZE_YAW_THRESHOLD_DEG: float = 30.0   # left/right turn beyond this = "looking away"
-    GAZE_PITCH_THRESHOLD_DEG: float = 20.0  # up/down tilt beyond this = "looking away" (catches looking down at a phone in your lap too)
-    GAZE_ALERT_THRESHOLD_SEC: float = 15.0  # how long "looking away" persists before triggering the alert
-
-    # --- Phone detection ---
-    PHONE_CONFIDENCE_THRESHOLD: float = 0.5  # minimum YOLO confidence to count as a phone
-
-    # --- Alerts ---
-    ALERT_COOLDOWN_SEC: float = 120.0  # 2 min — how long after dismiss before the popup can fire again
-
-    # --- Alerts ---
-    # Single alert type covers both gaze-away and phone-detected (per your
-    # choice) — this is the cooldown window after a dismissal before the
-    # next popup is allowed to fire, even if the distraction is ongoing.
-    ALERT_COOLDOWN_SEC: float = 120.0
-
-    # --- Alerts ---
-    # Cooldown gates how often a NEW popup can fire, independent of dismiss —
-    # dismissing early doesn't shorten it, since the goal is "don't spam",
-    # not "let the user reset the timer by clicking faster".
-    ALERT_COOLDOWN_SEC: float = 120.0
+    CAMERA_INDEX: int = 0
+    DETECTION_FRAME_INTERVAL_SEC: float = 0.2   # gaze check frequency (seconds)
+    PHONE_CHECK_INTERVAL_SEC: float = 1.5        # phone check less often — heavier model
+    DETECTION_STATUS_PUSH_INTERVAL_SEC: float = 0.5  # WebSocket push cadence
 
     # --- Gaze / head-pose thresholds ---
-    # Degrees of yaw (turned left/right) or pitch (looking up/down) before
-    # we consider the user "not looking at the screen". 25/20 are reasonable
-    # starting points — turning to glance at a notebook briefly shouldn't
-    # trip this, but turning away from the screen for a while should.
-    HEAD_POSE_YAW_THRESHOLD_DEG: float = 25.0
-    HEAD_POSE_PITCH_THRESHOLD_DEG: float = 20.0
-
-    # How long gaze must be continuously "away" (or face not visible at all)
-    # before it counts as a distraction worth alerting on.
-    DISTRACTION_THRESHOLD_SEC: float = 15.0
+    # Degrees of yaw (left/right turn) or pitch (up/down tilt) beyond which
+    # the user is considered "not looking at the screen". Starting points —
+    # watch logged yaw/pitch values during manual testing and tune in .env.
+    GAZE_YAW_THRESHOLD_DEG: float = 30.0
+    GAZE_PITCH_THRESHOLD_DEG: float = 20.0
+    # How long gaze must be continuously away (or face absent) before
+    # gaze_alert flips to True and the alert popup can fire.
+    GAZE_ALERT_THRESHOLD_SEC: float = 15.0
 
     # --- Phone detection ---
-    PHONE_CONFIDENCE_THRESHOLD: float = 0.5  # YOLO confidence floor for a "cell phone" box to count
+    PHONE_CONFIDENCE_THRESHOLD: float = 0.5  # minimum YOLO confidence to count
+
+    # --- Alerts ---
+    # How long after a dismissal before another popup is allowed to fire,
+    # even if the distraction condition is still active.
+    ALERT_COOLDOWN_SEC: float = 120.0  # 2 minutes
+
+    # --- Session tracking ---
+    # How often session_service samples the detection state to bucket time
+    # into focused vs. distracted. 1 s is fine — focus score doesn't need
+    # sub-second precision, and a tighter loop would just burn CPU for no gain.
+    SESSION_TICK_INTERVAL_SEC: float = 1.0
 
     # --- Logging ---
     LOG_LEVEL: str = "INFO"
@@ -73,14 +68,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore",  # ignore unexpected env vars instead of crashing
+        extra="ignore",
     )
 
     @property
     def cors_origins_list(self) -> list[str]:
-        # Split + strip so "http://a, http://b" and "http://a,http://b" both work
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
 
-# Single shared instance — import this everywhere, don't instantiate Settings() elsewhere
+# Single shared instance imported everywhere — never instantiate Settings() directly
 settings = Settings()

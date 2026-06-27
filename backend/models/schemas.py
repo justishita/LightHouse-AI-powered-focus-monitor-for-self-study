@@ -11,6 +11,8 @@ from typing import Optional
 from pydantic import BaseModel
 
 
+# --- Detection / alert ---
+
 class DetectionStatusResponse(BaseModel):
     # Raw detection signals
     face_visible: bool
@@ -24,7 +26,7 @@ class DetectionStatusResponse(BaseModel):
     # Alert popup state (computed by alert_service from the signals above)
     alert_active: bool
     alert_message: Optional[str] = None
-    alert_reason: Optional[str] = None  # "phone" | "gaze" | "both" | None
+    alert_reason: Optional[str] = None   # "phone" | "gaze" | "both" | None
     alert_cooldown_remaining_sec: float = 0.0
 
 
@@ -36,3 +38,58 @@ class DetectionActionResponse(BaseModel):
 class AlertDismissResponse(BaseModel):
     alert_active: bool
     alert_cooldown_remaining_sec: float
+
+
+# --- Session ---
+
+class SessionStartResponse(BaseModel):
+    ok: bool
+    session_id: Optional[int] = None
+    error: Optional[str] = None
+
+
+class SessionStopResponse(BaseModel):
+    ok: bool
+    session_id: Optional[int] = None
+    elapsed_sec: Optional[int] = None
+    focused_sec: Optional[int] = None
+    distracted_sec: Optional[int] = None
+    focus_score: Optional[float] = None
+    current_streak_min: Optional[float] = None
+    max_streak_min: Optional[float] = None
+    distraction_count: Optional[int] = None
+    error: Optional[str] = None
+
+
+class LiveStatsResponse(BaseModel):
+    active: bool
+    session_id: Optional[int] = None
+    elapsed_sec: Optional[int] = None
+    focused_sec: Optional[int] = None
+    distracted_sec: Optional[int] = None
+    focus_score: Optional[float] = None
+    current_streak_min: Optional[float] = None
+    max_streak_min: Optional[float] = None
+    distraction_count: Optional[int] = None
+
+
+class DistractionEventResponse(BaseModel):
+    id: int
+    started_at: float
+    ended_at: Optional[float] = None
+    duration_sec: Optional[float] = None
+    reason: str
+
+
+class SessionHistoryItem(BaseModel):
+    id: int
+    started_at: float
+    ended_at: Optional[float] = None
+    duration_sec: Optional[float] = None
+    focus_score: Optional[float] = None
+    max_streak_sec: Optional[float] = None
+    distraction_count: Optional[int] = None
+
+
+class SessionDetailResponse(SessionHistoryItem):
+    events: list[DistractionEventResponse] = []

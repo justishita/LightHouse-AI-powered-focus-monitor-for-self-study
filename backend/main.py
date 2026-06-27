@@ -12,8 +12,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from routers import detection
+from routers import detection, session as session_router
 from services.detection_service import detection_service
+from services.session_service import session_service
+from utils.database import init_db
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -21,25 +23,26 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: nothing to warm up — detection models load lazily inside
-    # detection_service.start() so server boot stays fast even before a
-    # session begins (no cost paid for a session that's never started).
+    # Startup: init DB schema (idempotent — safe to call every boot).
+    # Models load lazily on session start, so boot stays fast.
+    init_db()
     logger.info(f"{settings.APP_NAME} starting up in '{settings.APP_ENV}' mode")
     yield
-    # Shutdown: make sure the webcam gets released even if the server is
-    # killed mid-session — otherwise the camera can stay "in use" from the
-    # OS's perspective until the process fully exits.
-    if detection_service.is_running:
-        logger.info("Server shutting down with an active session — stopping detection")
+    # Shutdown: stop any running session cleanly so the webcam is released
+    # and final stats are persisted even on Ctrl-C / server restart.
+    if session_service.is_active:
+        logger.info("Server shutting down with an active session — stopping and saving stats")
+        session_service.stop()
+    elif detection_service.is_running:
+        # detection started standalone (via /api/detection/start), not via a session
         detection_service.stop()
     logger.info("Shutdown complete")
 
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
-# CORS is restricted to the Vite dev server origin via .env, not "*" —
-# even in local dev we don't want any arbitrary site on the LAN reading
-# session/detection data if the backend port happens to be reachable.
+# CORS restricted to the Vite dev server origin via .env, not "*" — even
+# in local dev we don't want arbitrary pages on the LAN reading session data.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -48,15 +51,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(detection.router, prefix="/api/detection", tags=["detection"])
-
 
 @app.get("/health")
 async def health_check():
-    # Cheap endpoint for the frontend (and you, manually via browser/curl)
-    # to confirm the backend is reachable before wiring up anything more complex.
-    return {"status": "ok", "app": settings.APP_NAME, "env": settings.APP_ENV}
+    return {
+        "status": "ok",
+        "app": settings.APP_NAME,
+        "env": settings.APP_ENV,
+        "session_active": session_service.is_active,
+    }
 
 
-# Additional routers (session, blocker) get included here as those
-# sections are built, following the same pattern as detection above.
+app.include_router(detection.router, prefix="/api/detection", tags=["detection"])
+app.include_router(session_router.router, prefix="/api/session", tags=["session"])
+
+# Future routers:
+# from routers import blocker
+# app.include_router(blocker.router, prefix="/api/blocker", tags=["blocker"])
