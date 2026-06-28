@@ -1,1 +1,19 @@
 @import "tailwindcss";
+
+
+/* Smooth dark/light transition so the toggle doesn't flash */
+@layer base {
+  html {
+    @apply transition-colors duration-200;
+  }
+  body {
+    @apply bg-slate-950 text-slate-100 antialiased;
+  }
+}
+
+/* Focus score ring animation — Tailwind can't animate stroke-dashoffset
+   directly, so we define the keyframe here and reference it via a
+   Tailwind arbitrary value in the component. */
+@keyframes ringFill {
+  from { stroke-dashoffset: 283; }
+}
