@@ -3,15 +3,25 @@ backend/venv/
 __pycache__/
 *.pyc
 backend/.env
+backend/.env.local
+backend/.env.*
+backend/node_modules/
+backend/package-lock.json
+backend/package.json
+
 
 # Node
 frontend/node_modules/
 frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/.env.*
 
 # ML model weight files (keep folder, ignore large binaries)
 models/*.pt
 models/*.tflite
 models/*.onnx
+models/*.task
 
 # Logs
 *.log
